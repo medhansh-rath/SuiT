@@ -40,7 +40,7 @@ fi
 
 # Activate conda environment
 source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate suit
+conda activate geolexels
 
 echo "Log directory: $LOGDIR"
 echo "TensorBoard will be available at: http://localhost:${PORT}"

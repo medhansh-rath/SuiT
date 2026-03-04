@@ -126,7 +126,7 @@ fi
 # Activate conda environment
 echo "Activating conda environment..."
 source "$(conda info --base)/etc/profile.d/conda.sh"
-conda activate suit
+conda activate geolexels
 
 # Build command
 CMD="python precompute_geolexels.py \

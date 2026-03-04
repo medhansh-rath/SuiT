@@ -35,8 +35,8 @@ To set up the environment, run the following commands:
 ```bash
 git clone https://github.com/jangsoohyuk/SuiT.git
 cd SuiT
-conda create -n suit python=3.10 -y
-conda activate suit
+conda create -n geolexels python=3.10 -y
+conda activate geolexels
 conda install pytorch==2.1.0 torchvision==0.16.0 torchaudio==2.1.0 pytorch-cuda=12.1 -c pytorch -c nvidia -y
 pip install torch_scatter-2.1.2+pt21cu121-cp310-cp310-linux_x86_64.whl
 pip install -r requirements.txt
