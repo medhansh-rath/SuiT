@@ -21,6 +21,21 @@ import logging
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import multiprocessing
 
+# Ensure GeoLexels module is importable in worker processes
+SCRIPT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = SCRIPT_DIR.parent.parent
+GEOLEXELS_DIR = PROJECT_ROOT / 'GeoLexels'
+if str(GEOLEXELS_DIR) not in sys.path:
+    sys.path.insert(0, str(GEOLEXELS_DIR))
+
+try:
+    from GeoLexelsDemo import segment
+except Exception as _import_error:
+    segment = None
+    SEGMENT_IMPORT_ERROR = _import_error
+else:
+    SEGMENT_IMPORT_ERROR = None
+
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
@@ -59,6 +74,10 @@ def process_geolexels(rgb_path, depth_path, output_path, fast_cloud_exe, temp_di
     Saves the result as a .npy file.
     """
     try:
+        if segment is None:
+            logger.error(f"GeoLexels import failed in worker: {SEGMENT_IMPORT_ERROR}")
+            return False
+
         # Create temporary binary file
         temp_bin = os.path.join(temp_dir, f'temp_geolexels_{os.getpid()}.bin')
         
@@ -149,17 +168,6 @@ def process_geolexels(rgb_path, depth_path, output_path, fast_cloud_exe, temp_di
         return False
 
 
-# Global variable to store fast_cloud_exe path for multiprocessing
-_FAST_CLOUD_EXE = None
-_TEMP_DIR = '/tmp'
-
-def _process_wrapper(args_tuple):
-    """Wrapper function for multiprocessing (must be module-level for pickling)"""
-    idx, rgb, depth, output = args_tuple
-    result = process_geolexels(rgb, depth, output, _FAST_CLOUD_EXE, _TEMP_DIR)
-    return (idx, rgb, result)
-
-
 def main():
     parser = argparse.ArgumentParser(description='Precompute GeoLexels for SUNRGBD dataset')
     
@@ -189,6 +197,11 @@ def main():
     # Convert to absolute paths
     fast_cloud_exe = os.path.abspath(args.fast_cloud_exe)
     dataset_root = os.path.abspath(args.dataset_root)
+
+    if segment is None:
+        logger.error(f"Failed to import GeoLexels segment function: {SEGMENT_IMPORT_ERROR}")
+        logger.error(f"Expected GeoLexelsDemo.py in: {GEOLEXELS_DIR}")
+        sys.exit(1)
     
     if not os.path.exists(fast_cloud_exe):
         logger.error(f"fast_cloud executable not found: {fast_cloud_exe}")
@@ -229,22 +242,28 @@ def main():
     failed = 0
     
     if len(pairs_to_process) > 0:
-        # Set global variables for multiprocessing wrapper function
-        global _FAST_CLOUD_EXE, _TEMP_DIR
-        _FAST_CLOUD_EXE = fast_cloud_exe
-        _TEMP_DIR = args.temp_dir
-        
         # Use ProcessPoolExecutor for parallel processing
         with ProcessPoolExecutor(max_workers=args.num_workers) as executor:
             # Submit all tasks
-            futures = {executor.submit(_process_wrapper, item): item for item in pairs_to_process}
+            futures = {
+                executor.submit(
+                    process_geolexels,
+                    rgb,
+                    depth,
+                    output,
+                    fast_cloud_exe,
+                    args.temp_dir,
+                ): item
+                for item in pairs_to_process
+                for _, rgb, depth, output in [item]
+            }
             
             # Process completed tasks as they finish
             for future in as_completed(futures):
                 item = futures[future]
                 idx, rgb, depth, output = item
                 try:
-                    idx_ret, rgb_ret, result = future.result()
+                    result = future.result()
                     if result:
                         processed += 1
                     else:
