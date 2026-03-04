@@ -1,0 +1,38 @@
+# Python cache artifacts
+__pycache__/
+*.py[cod]
+.ipynb_checkpoints/
+
+# Local virtual environments
+.venv/
+venv/
+env/
+
+# Generated runtime artifacts
+logs/
+outputs/
+*.log
+benchmark_results.txt
+.benchmark_config
+filled_depth_true_guided.png
+
+# Local scratch docs
+FILES_MANIFEST.txt
+IMPLEMENTATION_SUMMARY.md
+
+# Integration docs (local workflow notes)
+GEOLEXELS_INTEGRATION.md
+GPU_OPTIMIZATION.md
+QUICKSTART.txt
+README_GEOLEXELS.md
+SELECT_WORKERS.md
+
+# Helper scripts (add with -f if needed)
+benchmark_workers.sh
+precompute_geolexels.py
+run_complete_workflow.sh
+run_geolexels_preprocessing.sh
+run_suit_training.sh
+submit_preprocessing_slurm.sh
+submit_training_slurm.sh
+validate_setup.sh
