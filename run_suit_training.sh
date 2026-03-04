@@ -5,9 +5,10 @@
 # Usage:
 #   bash run_suit_training.sh
 #   bash run_suit_training.sh --batch-size 16 --epochs 100
+#   bash run_suit_training.sh --trial-name sunrgbd_geolexels_exp1
 #
 
-set -e
+set -euo pipefail
 
 # Default parameters
 PROJECT_ROOT="$( cd "$( dirname "${BASH_SOURCE[0]}" )/../.." && pwd )"
@@ -19,13 +20,14 @@ GEOLEXELS_CACHE="${DATASET_ROOT}/.geolexels_cache"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 EPOCHS="${EPOCHS:-100}"
 LR="${LR:-0.001}"
-MODEL="${MODEL:-suit_tiny_224}"
+MODEL="${MODEL:-suit_small_224}"
 INPUT_SIZE="${INPUT_SIZE:-224}"
 N_SPIX_SEGMENTS="${N_SPIX_SEGMENTS:-196}"
 DOWNSAMPLE="${DOWNSAMPLE:-2}"
 SEED="${SEED:-0}"
 WORKERS="${WORKERS:-4}"
 DEVICE="${DEVICE:-cuda}"
+TRIAL_NAME="${TRIAL_NAME:-sunrgbd_geolexels_$(date +%Y%m%d_%H%M%S)}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -44,6 +46,18 @@ while [[ $# -gt 0 ]]; do
             ;;
         --model)
             MODEL="$2"
+            shift 2
+            ;;
+        --num-workers)
+            WORKERS="$2"
+            shift 2
+            ;;
+        --device)
+            DEVICE="$2"
+            shift 2
+            ;;
+        --trial-name)
+            TRIAL_NAME="$2"
             shift 2
             ;;
         *)
@@ -81,6 +95,7 @@ echo "Epochs: $EPOCHS"
 echo "Learning rate: $LR"
 echo "Dataset: $DATASET_ROOT"
 echo "GeoLexels cache: $GEOLEXELS_CACHE"
+echo "Trial name: $TRIAL_NAME"
 echo "Output directory: $OUTPUT_DIR"
 echo "=========================================="
 echo ""
@@ -97,14 +112,13 @@ python3 main.py \
     --seed "$SEED" \
     --data-path "$DATASET_ROOT" \
     --data-set SUNRGBD \
-    --geolexels-cache-dir "$GEOLEXELS_CACHE" \
     --n-spix-segments "$N_SPIX_SEGMENTS" \
     --downsample "$DOWNSAMPLE" \
-    --num-workers "$WORKERS" \
+    --num_workers "$WORKERS" \
     --device "$DEVICE" \
     --input-size "$INPUT_SIZE" \
-    --output-dir "$OUTPUT_DIR" \
-    --log-file "$LOG_FILE" \
+    --output_dir "$OUTPUT_DIR" \
+    --trial_name "$TRIAL_NAME" \
     2>&1 | tee "$LOG_FILE"
 
 echo ""

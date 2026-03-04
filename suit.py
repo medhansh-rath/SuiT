@@ -14,12 +14,63 @@ from timm.models import register_model
 from timm.layers import Mlp, DropPath, get_act_layer, get_norm_layer, use_fused_attn
 
 from einops import repeat, rearrange
-from torch_scatter import scatter_max, scatter_mean, scatter_sum, scatter_softmax, scatter_min
-from torch_scatter.composite import scatter_std
 
 __all__ = [
     'suit_tiny_224', 'suit_small_224', 'suit_base_224', 'suit_base_dino'
 ]
+
+
+def _scatter_sum(src: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
+    out = torch.zeros((src.shape[0], dim_size), device=src.device, dtype=src.dtype)
+    out.scatter_add_(1, index, src)
+    return out
+
+
+def _scatter_count(index: torch.Tensor, dim_size: int, dtype: torch.dtype, device: torch.device) -> torch.Tensor:
+    ones = torch.ones(index.shape, device=device, dtype=dtype)
+    out = torch.zeros((index.shape[0], dim_size), device=device, dtype=dtype)
+    out.scatter_add_(1, index, ones)
+    return out
+
+
+def _scatter_mean(src: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
+    sum_out = _scatter_sum(src, index, dim_size)
+    count_out = _scatter_count(index, dim_size, src.dtype, src.device).clamp_min(1.0)
+    return sum_out / count_out
+
+
+def _scatter_max(src: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
+    fill_value = torch.finfo(src.dtype).min if src.is_floating_point() else torch.iinfo(src.dtype).min
+    out = torch.full((src.shape[0], dim_size), fill_value=fill_value, device=src.device, dtype=src.dtype)
+    out.scatter_reduce_(1, index, src, reduce='amax', include_self=True)
+    count_out = _scatter_count(index, dim_size, src.dtype, src.device)
+    return torch.where(count_out > 0, out, torch.zeros_like(out))
+
+
+def _scatter_min(src: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
+    fill_value = torch.finfo(src.dtype).max if src.is_floating_point() else torch.iinfo(src.dtype).max
+    out = torch.full((src.shape[0], dim_size), fill_value=fill_value, device=src.device, dtype=src.dtype)
+    out.scatter_reduce_(1, index, src, reduce='amin', include_self=True)
+    count_out = _scatter_count(index, dim_size, src.dtype, src.device)
+    return torch.where(count_out > 0, out, torch.zeros_like(out))
+
+
+def _scatter_softmax(src: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
+    max_out = _scatter_max(src, index, dim_size)
+    max_for_src = max_out.gather(1, index)
+    exp = torch.exp(src - max_for_src)
+    sum_exp = _scatter_sum(exp, index, dim_size)
+    denom = sum_exp.gather(1, index).clamp_min(1e-12)
+    return exp / denom
+
+
+def _scatter_std(src: torch.Tensor, index: torch.Tensor, dim_size: int) -> torch.Tensor:
+    mean_out = _scatter_mean(src, index, dim_size)
+    mean_sq_out = _scatter_mean(src * src, index, dim_size)
+    var_out = (mean_sq_out - mean_out * mean_out).clamp_min(0.0)
+    std_out = torch.sqrt(var_out)
+    count_out = _scatter_count(index, dim_size, src.dtype, src.device)
+    return torch.where(count_out > 1, std_out, torch.zeros_like(std_out))
 
 # Poisitional Encoding proposed in Vaswani et al., https://arxiv.org/abs/1706.03762
 class PositionalEncoding(nn.Module):
@@ -273,46 +324,46 @@ class SuperpixelVisionTransformer(VisionTransformer):
         # NOTE: MAX
         if 'max' in self.aggregate:
             # Perform scatter_max
-            max_out, _ = scatter_max(x_flat, labels_expanded, dim=1, dim_size=n_tokens)
+            max_out = _scatter_max(x_flat, labels_expanded, n_tokens)
             max_out = max_out.view(b, c, n_tokens).permute(0, 2, 1)  # Shape: (b, n_tokens, c)
             out_list.append(max_out)
 
         # NOTE: MIN
         if 'min' in self.aggregate:
             # Perform scatter_min
-            min_out, _ = scatter_min(x_flat, labels_expanded, dim=1, dim_size=n_tokens)
+            min_out = _scatter_min(x_flat, labels_expanded, n_tokens)
             min_out = min_out.view(b, c, n_tokens).permute(0, 2, 1)  # Shape: (b, n_tokens, c)
             out_list.append(min_out)
             
         # NOTE: AVG
         if 'avg' in self.aggregate:
             # Perform scatter_mean
-            mean_out = scatter_mean(x_flat, labels_expanded, dim=1, dim_size=n_tokens)
+            mean_out = _scatter_mean(x_flat, labels_expanded, n_tokens)
             mean_out = mean_out.view(b, c, n_tokens).permute(0, 2, 1)  # Shape: (b, n_tokens, c)
             out_list.append(mean_out)
 
         # NOTE: STD
         if 'std' in self.aggregate:
             # Perform scatter_max
-            std_out = scatter_std(x_flat, labels_expanded, dim=1, dim_size=n_tokens)
+            std_out = _scatter_std(x_flat, labels_expanded, n_tokens)
             std_out = std_out.view(b, c, n_tokens).permute(0, 2, 1)  # Shape: (b, n_tokens, c)
             out_list.append(std_out)
 
         # NOTE: SOFTMAX
         if 'softmax' in self.aggregate:
             # Perform scatter_softmax
-            softmax_weights = scatter_softmax(x_flat, labels_expanded, dim=1, dim_size=n_tokens)
+            softmax_weights = _scatter_softmax(x_flat, labels_expanded, n_tokens)
             # Weighted features
             weighted_softmax_features = x_flat * softmax_weights
             # Perform scatter_sum to aggregate the weighted features
-            softmax_out = scatter_sum(weighted_softmax_features, labels_expanded, dim=1, dim_size=n_tokens)
+            softmax_out = _scatter_sum(weighted_softmax_features, labels_expanded, n_tokens)
             softmax_out = softmax_out.view(b, c, n_tokens).permute(0, 2, 1)  # Shape: (b, n_tokens, c)
             out_list.append(softmax_out)
         
         # NOTE: mask padded tokens (empty superpixel clusters)
-        ones = torch.ones(b, 1, h, w, device=x.device, requires_grad=False).reshape(-1, h * w).int()
+        ones = torch.ones(b, h * w, device=x.device, dtype=x_flat.dtype, requires_grad=False)
         spix_labels_flat = spix_label.reshape(-1, h * w).long()
-        cluster_counter = scatter_sum(ones, spix_labels_flat, dim=1, dim_size=n_tokens).view(b, 1, n_tokens).permute(0, 2, 1)
+        cluster_counter = _scatter_sum(ones, spix_labels_flat, n_tokens).view(b, 1, n_tokens).permute(0, 2, 1)
         mask = (cluster_counter != 0)  # mask empty tokens (B, N, 1)
         mask = rearrange(mask, 'b n 1 -> b 1 1 n')
 

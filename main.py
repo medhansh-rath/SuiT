@@ -403,6 +403,7 @@ def main(args):
             args.clip_grad, model_ema, mixup_fn,
             set_training_mode=args.train_mode,  # keep in eval mode for deit finetuning / train mode for training and deit III finetuning
             args = args,
+            logger=logger,
         )
 
         lr_scheduler.step(epoch)
@@ -420,8 +421,19 @@ def main(args):
                 }, checkpoint_path)
              
 
-        test_stats = evaluate(data_loader_val, model, device)
+        test_stats = evaluate(data_loader_val, model, device, epoch=epoch, logger=logger)
         print(f"Accuracy of the network on the {len(dataset_val)} test images: {test_stats['acc1']:.1f}%")
+        
+        # Log epoch-level metrics to TensorBoard
+        if args.gpu == 0:
+            logger.add_scalar('train/epoch_loss', train_stats['loss'], epoch)
+            logger.add_scalar('train/learning_rate', train_stats['lr'], epoch)
+            if 'grad_norm' in train_stats:
+                logger.add_scalar('train/epoch_grad_norm', train_stats['grad_norm'], epoch)
+            logger.add_scalar('val/epoch_loss', test_stats['loss'], epoch)
+            logger.add_scalar('val/acc1', test_stats['acc1'], epoch)
+            logger.add_scalar('val/acc5', test_stats['acc5'], epoch)
+            logger.add_scalar('val/max_acc1', max(max_accuracy, test_stats["acc1"]), epoch)
         
         if max_accuracy < test_stats["acc1"]:
             max_accuracy = test_stats["acc1"]
@@ -439,15 +451,13 @@ def main(args):
                     }, checkpoint_path)
             
         print(f'Max accuracy: {max_accuracy:.2f}%')
+        print(f'Epoch {epoch} Summary: Train Loss={train_stats["loss"]:.4f}, Val Loss={test_stats["loss"]:.4f}, Val Acc@1={test_stats["acc1"]:.2f}%, Val Acc@5={test_stats["acc5"]:.2f}%')
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
                      'epoch': epoch,
+                     'max_accuracy': max_accuracy,
                      'n_parameters': n_parameters}
-        
-        if args.gpu == 0:
-            for key, value in log_stats.items():
-                logger.add_scalar(key, value, epoch)
         
         if args.output_dir and utils.is_main_process():
             with (output_dir / "log.txt").open("a") as f:

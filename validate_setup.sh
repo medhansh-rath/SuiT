@@ -47,8 +47,8 @@ check "OpenCV (cv2) installed"
 python3 -c "import sklearn" 2>/dev/null
 check "scikit-learn installed"
 
-python3 -c "from torch_scatter import scatter_mean" 2>/dev/null
-check "torch_scatter installed"
+python3 -c "import torch; src=torch.randn(2,4); idx=torch.tensor([[0,1,1,2],[0,0,2,2]]); out=torch.zeros(2,3).scatter_reduce(1, idx, src, reduce='sum'); print(out.shape)" 2>/dev/null
+check "PyTorch scatter_reduce available"
 
 # Check 2: Project structure
 echo -e "\n2. Project Structure:"
@@ -142,7 +142,7 @@ if [ $FAIL -eq 0 ]; then
 else
     echo -e "${RED}✗ Some checks failed. Please fix the issues above.${NC}"
     echo -e "\nCommon fixes:"
-    echo "  - Install missing packages: pip install numpy torch opencv-python scikit-learn torch-scatter"
+    echo "  - Install missing packages: pip install numpy torch opencv-python scikit-learn"
     echo "  - Build fast_cloud: cd pointcloud && mkdir build && cd build && cmake .. && make"
     echo "  - Check documentation: cat $SUIT_DIR/GEOLEXELS_INTEGRATION.md"
     exit 1

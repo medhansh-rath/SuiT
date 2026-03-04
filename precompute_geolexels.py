@@ -103,16 +103,40 @@ def process_geolexels(rgb_path, depth_path, output_path, fast_cloud_exe, temp_di
         # Reshape to (H, W, 7)
         total_pixels = width * height
         if data.size == total_pixels * 7:
-            data = data.reshape(height, width, 7)
-            
-            # Save as numpy file
-            np.save(output_path, data)
-            
-            # Clean up temp file
-            if os.path.exists(temp_bin):
-                os.remove(temp_bin)
-            
-            return True
+            # Now run GeoLexels segmentation on the binary file
+            try:
+                # GeoLexels parameters (matching Mode 3: Color + Depth + Normals with Cosine)
+                threshold = 60.0
+                weight_depth = 1.0
+                weight_normals = 2.0
+                focal_length = 1.0
+                normals_mode = 3  # Cosine distance for normals
+                
+                labels, numlabels = segment(
+                    temp_bin, threshold, False,
+                    weight_depth=weight_depth,
+                    weight_normals=weight_normals,
+                    focal_length=focal_length,
+                    normals_mode=normals_mode,
+                    is_binary=True,
+                    width=width,
+                    height=height
+                )
+                
+                # Save superpixel labels as numpy file
+                np.save(output_path, labels)
+                
+                # Clean up temp file
+                if os.path.exists(temp_bin):
+                    os.remove(temp_bin)
+                
+                return True
+                
+            except Exception as seg_error:
+                logger.error(f"GeoLexels segmentation failed for {rgb_path}: {seg_error}")
+                if os.path.exists(temp_bin):
+                    os.remove(temp_bin)
+                return False
         else:
             logger.warning(f"Unexpected data size for {rgb_path}: got {data.size}, expected {total_pixels * 7}")
             return False

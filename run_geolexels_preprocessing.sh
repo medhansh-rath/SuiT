@@ -99,7 +99,6 @@ python3 "$PYTHON_SCRIPT" \
     $START_IDX \
     $SKIP_EXISTING \
     2>&1 | tee "$LOG_FILE"
-    2>&1 | tee "$LOG_FILE"
 
 echo ""
 echo "=========================================="

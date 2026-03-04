@@ -121,6 +121,7 @@ class SUNRGBDGeolexelsDataset(torch.utils.data.Dataset):
         self.downsample = downsample
         self.transform = transform
         self.target_transform = target_transform
+        self.loader = default_loader
         self.denormalize = Denormalize(IMAGENET_DEFAULT_MEAN, IMAGENET_DEFAULT_STD)
         
         # Find all RGB images
@@ -152,78 +153,41 @@ class SUNRGBDGeolexelsDataset(torch.utils.data.Dataset):
         Returns:
             tuple: (image, assignment, target) where assignment is GeoLexels superpixel map
         """
-        import cv2
-        
         item = self.samples[index]
-        
-        # Load RGB image
-        image = cv2.imread(item['rgb'], cv2.IMREAD_COLOR)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-        image = torch.tensor(image, dtype=torch.float32).permute(2, 0, 1) / 255.0
-        
-        # Apply transform
+
+        # Load RGB image as PIL (compatible with timm/torchvision transforms)
+        image = self.loader(item['rgb'])
+
+        # Apply transform if provided; otherwise convert to tensor
         if self.transform is not None:
             image = self.transform(image)
+        else:
+            image = transforms.ToTensor()(image)
+
+        # Load precomputed GeoLexels superpixel labels (H, W) array
+        labels = np.load(item['cache'])  # Shape: (H, W) with superpixel IDs
+
+        # Resize labels if needed to match transformed image size
+        target_h, target_w = image.shape[1], image.shape[2]
+        if labels.shape != (target_h, target_w):
+            import cv2
+            # Use nearest neighbor to preserve label integrity
+            labels = cv2.resize(labels.astype(np.float32), (target_w, target_h), 
+                               interpolation=cv2.INTER_NEAREST).astype(np.int32)
         
-        # Load precomputed GeoLexels data
-        geolexels_data = np.load(item['cache'])  # Shape: (H, W, 7)
-        
-        # Generate superpixel assignments from GeoLexels
-        # Use clustering on the features to create n_segments superpixels
-        assignment = self._generate_assignment_from_geolexels(
-            geolexels_data, 
-            (image.shape[1], image.shape[2])  # (H, W) in tensor format
-        )
-        
+        # Downsample if specified (matching SpixImageFolder behavior)
+        if self.downsample > 1:
+            labels = labels[::self.downsample, ::self.downsample]
+
         # Convert assignment to tensor
-        assignment = torch.tensor(assignment, dtype=torch.long).unsqueeze(0)
-        
+        assignment = torch.tensor(labels, dtype=torch.long).unsqueeze(0)
+
         # For SUNRGBD, we use scene as a pseudo-target (0 for now)
         target = 0
-        
+
         return image, assignment, target
     
-    def _generate_assignment_from_geolexels(self, geolexels_data, target_size):
-        """
-        Generate superpixel assignments from GeoLexels data.
-        Clusters the GeoLexels features to create ~n_segments superpixels.
-        
-        Args:
-            geolexels_data: (H, W, 7) array with features [RGB, depth, nx, ny, nz]
-            target_size: (H, W) target size after downsampling
-        
-        Returns:
-            assignment: (H, W) array with superpixel IDs
-        """
-        from sklearn.cluster import KMeans
-        
-        H, W = geolexels_data.shape[:2]
-        
-        # Downsample for clustering
-        downsampled_h = H // self.downsample
-        downsampled_w = W // self.downsample
-        
-        # Resample features to downsampled size
-        downsampled_data = geolexels_data[::self.downsample, ::self.downsample, :]  # (H', W', 7)
-        
-        # Reshape to (N, 7) for clustering
-        features = downsampled_data.reshape(-1, 7)
-        
-        # Cluster using KMeans
-        kmeans = KMeans(n_clusters=self.n_segments, random_state=0, n_init=10)
-        labels = kmeans.fit_predict(features)
-        
-        # Reshape back to (H', W')
-        assignment = labels.reshape(downsampled_h, downsampled_w)
-        
-        # Upsample to original resolution
-        assignment_full = np.repeat(np.repeat(assignment, self.downsample, axis=0), 
-                                     self.downsample, axis=1)
-        
-        # Trim to exact original size (in case of rounding issues)
-        assignment_full = assignment_full[:H, :W]
-        
-        return assignment_full
+
 
 
 class INatDataset(ImageFolder):
