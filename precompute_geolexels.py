@@ -124,19 +124,20 @@ def process_geolexels(rgb_path, depth_path, output_path, fast_cloud_exe, temp_di
         if data.size == total_pixels * 7:
             # Now run GeoLexels segmentation on the binary file
             try:
-                # GeoLexels parameters (matching Mode 3: Color + Depth + Normals with Cosine)
-                threshold = 60.0
-                weight_depth = 1.0
-                weight_normals = 2.0
-                focal_length = 1.0
-                normals_mode = 3  # Cosine distance for normals
-                
+                # GeoLexels Mode 3 with custom metrics and distributions
                 labels, numlabels = segment(
-                    temp_bin, threshold, False,
-                    weight_depth=weight_depth,
-                    weight_normals=weight_normals,
-                    focal_length=focal_length,
-                    normals_mode=normals_mode,
+                    temp_bin, 
+                    threshold=0.25,           # Very fine threshold for detailed segmentation
+                    doRGBtoLAB=True,          # Convert to CIELAB color space
+                    weight_depth=0.45,        # Color and depth weight
+                    weight_normals=0.1,       # Lower normal weight
+                    focal_length=1.0,
+                    normals_mode=3,           # Cosine distance for normals
+                    color_metric=1,           # Laplace distribution for color
+                    depth_metric=1,           # Laplace distribution for depth
+                    normals_metric=2,         # Von Mises-Fischer for normals
+                    depth_normalization_mode=1,  # sensor_max normalization
+                    sensor_max_depth=10.0,    # Max depth value for sensor
                     is_binary=True,
                     width=width,
                     height=height
