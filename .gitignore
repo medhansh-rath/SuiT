@@ -26,13 +26,3 @@ GPU_OPTIMIZATION.md
 QUICKSTART.txt
 README_GEOLEXELS.md
 SELECT_WORKERS.md
-
-# Helper scripts (add with -f if needed)
-benchmark_workers.sh
-precompute_geolexels.py
-run_complete_workflow.sh
-run_geolexels_preprocessing.sh
-run_suit_training.sh
-submit_preprocessing_slurm.sh
-submit_training_slurm.sh
-validate_setup.sh
